@@ -366,7 +366,7 @@ def report_user_competency_summary(user_id):
 def report_competency_results_summary(competency_id):
     print("\n--- Competency Results Summary ---")
 
-    # Get competency info
+   
     cursor.execute("SELECT name FROM competencies WHERE competency_id = ?", (competency_id,))
     comp = cursor.fetchone()
     if not comp:
@@ -376,7 +376,7 @@ def report_competency_results_summary(competency_id):
     comp_name = comp[0]
     print(f"Competency: {comp_name}")
 
-    # Get all active users
+    
     cursor.execute("SELECT user_id, first_name, last_name FROM users WHERE active = 1 ORDER BY last_name, first_name")
     users = cursor.fetchall()
     if not users:
@@ -387,7 +387,6 @@ def report_competency_results_summary(competency_id):
     count = 0
 
     for user_id, first_name, last_name in users:
-        # Get most recent result for this competency for the user
         cursor.execute("""
             SELECT r.score, r.date_taken, a.name
             FROM assessment_results r
@@ -880,7 +879,7 @@ def manager_menu():
                 elif sub_choice == "2":
                     cid = input("Enter competency ID: ").strip()
                     if cid:
-                        report_competency_results_summary(cid)   # <-- your new function wired in here
+                        report_competency_results_summary(cid)  
 
                 elif sub_choice == "3":
                     filename = input("CSV filename to import: ").strip()
@@ -937,11 +936,10 @@ def user_menu(user_id):
             view_assessments()
 
         elif choice == "5":
-            report_user_competency_summary(user_id)   # <-- simplified
+            report_user_competency_summary(user_id)   
 
         elif choice == "6":
-            view_assessments_for_user(user_id)        # <-- helper to implement
-
+            view_assessments_for_user(user_id)        
         elif choice == "7":
             logout({"role": "user", "user_id": user_id})
             break
@@ -963,7 +961,7 @@ if __name__ == "__main__":
         user_info = login(email, password)
 
         if user_info:
-            # Double-check role matches database
+            
             if user_info["role"] != role_choice:
                 print(f"Role mismatch: you selected '{role_choice}' but your account is '{user_info['role']}'.")
             else:
