@@ -18,6 +18,12 @@ import bcrypt
 
 
 
+
+
+
+connection = sqlite3.connect("competency_database.sqlite")
+cursor = connection.cursor()
+
 cursor.execute("PRAGMA foreign_keys = ON;")
 
 
@@ -35,30 +41,6 @@ CREATE TABLE IF NOT EXISTS users (
     user_type TEXT NOT NULL CHECK(user_type IN ('user','manager'))
 );
 """)
-
-
-cursor.execute("""
-INSERT OR IGNORE INTO users (
-    first_name, last_name, phone, email, password_hash, active, date_created, hire_date, user_type
-) VALUES (
-    'Manager', '', '555-0001', 'test@testing.com',
-    '$2b$12$tjj5y98HL8rGzttHorXKH.XmxPcY/3g3i91kbcmv.zfah.PNCDJZG', 1, DATE('now'), DATE('now'), 'manager'
-);
-""")
-
-cursor.execute("""
-INSERT OR IGNORE INTO users (
-    first_name, last_name, phone, email, password_hash, active, date_created, hire_date, user_type
-) VALUES (
-    'User', '', '555-0002', 'user@testing.com',
-    '$2b$12$JfIvXqjMfQd1FG0nhGjwze5cWHcM5OVhOzypY2KUJz2NXM6BanPqG', 1, DATE('now'), DATE('now'), 'user'
-);
-""")
-
-connection.commit()
-
-
-
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS competencies (
@@ -95,7 +77,7 @@ CREATE TABLE IF NOT EXISTS assessment_results (
 """)
 
 connection.commit()
-
+# connection.close()
 
 
 def login(email, password):
@@ -125,6 +107,19 @@ def logout(user_info):
         print(f"User {user_info['user_id']} logged out.")
     else:
         print("No active session.")
+
+
+if __name__ == "__main__":
+    
+    email = input("Email: ")
+    password = input("Password: ")
+
+    user_info = login(email, password)
+
+    if user_info:
+        print(f"Role: {user_info['role']}")
+        
+        logout(user_info)
 
 
 
@@ -279,6 +274,219 @@ def delete_user():
             print(f"Error deleting user: {e}")
     else:
         print("Delete cancelled.")
+
+
+def search_users_by_name():
+    print("\n--- Search Users by Name ---")
+    name = input("Enter first or last name to search: ").strip()
+    if not name:
+        print("Search cancelled (empty value).")
+        return
+
+    cursor.execute("""
+        SELECT user_id, first_name, last_name, email, phone, hire_date, user_type, active
+        FROM users
+        WHERE first_name LIKE ? OR last_name LIKE ?
+        ORDER BY last_name, first_name
+    """, (f"%{name}%", f"%{name}%"))
+    rows = cursor.fetchall()
+
+    if rows:
+        for r in rows:
+            print(f"ID: {r[0]} | {r[1]} {r[2]} | Email: {r[3]} | Phone: {r[4]} | "
+                  f"Hire Date: {r[5]} | Type: {r[6]} | Active: {r[7]}")
+    else:
+        print("No users found with that name.")
+
+
+
+
+def search_user_by_email():
+    print("\n--- Search User by Email ---")
+    email = input("Enter email to search: ").strip()
+    cursor.execute("""
+        SELECT user_id, first_name, last_name, phone, email, hire_date, user_type, active
+        FROM users
+        WHERE email = ?
+    """, (email,))
+    user = cursor.fetchone()
+    if user:
+        print(f"ID: {user[0]} | {user[1]} {user[2]} | Phone: {user[3]} | Email: {user[4]} | Hire Date: {user[5]} | Type: {user[6]} | Active: {user[7]}")
+    else:
+        print("No user found with that email.")
+
+
+
+def report_user_competency_summary(user_id):
+    print("\n--- User Competency Summary ---")
+
+    cursor.execute("SELECT first_name, last_name, email FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        print("User not found.")
+        return
+
+    print(f"User: {user[0]} {user[1]} | Email: {user[2]}")
+
+    cursor.execute("SELECT competency_id, name FROM competencies ORDER BY name")
+    competencies = cursor.fetchall()
+    if not competencies:
+        print("No competencies found.")
+        return
+
+    total_score = 0
+    count = 0
+
+    for comp_id, comp_name in competencies:
+        cursor.execute("""
+            SELECT r.score, r.date_taken, a.name
+            FROM assessment_results r
+            JOIN assessments a ON r.assessment_id = a.assessment_id
+            WHERE r.user_id = ? AND a.competency_id = ?
+            ORDER BY r.date_taken DESC
+            LIMIT 1
+        """, (user_id, comp_id))
+        result = cursor.fetchone()
+
+        if result:
+            score, date_taken, assessment_name = result
+        else:
+            score, date_taken, assessment_name = 0, None, None
+
+        print(f"Competency: {comp_name} | Score: {score} | Assessment: {assessment_name or ''} | Date: {date_taken or ''}")
+
+        total_score += score
+        count += 1
+
+    avg_score = total_score / count if count > 0 else 0
+    print(f"\nAverage Competency Score: {avg_score:.2f}")
+
+
+
+def report_competency_results_summary(competency_id):
+    print("\n--- Competency Results Summary ---")
+
+   
+    cursor.execute("SELECT name FROM competencies WHERE competency_id = ?", (competency_id,))
+    comp = cursor.fetchone()
+    if not comp:
+        print("Competency not found.")
+        return
+
+    comp_name = comp[0]
+    print(f"Competency: {comp_name}")
+
+    
+    cursor.execute("SELECT user_id, first_name, last_name FROM users WHERE active = 1 ORDER BY last_name, first_name")
+    users = cursor.fetchall()
+    if not users:
+        print("No active users found.")
+        return
+
+    total_score = 0
+    count = 0
+
+    for user_id, first_name, last_name in users:
+        cursor.execute("""
+            SELECT r.score, r.date_taken, a.name
+            FROM assessment_results r
+            JOIN assessments a ON r.assessment_id = a.assessment_id
+            WHERE r.user_id = ? AND a.competency_id = ?
+            ORDER BY r.date_taken DESC
+            LIMIT 1
+        """, (user_id, competency_id))
+        result = cursor.fetchone()
+
+        if result:
+            score, date_taken, assessment_name = result
+        else:
+            score, date_taken, assessment_name = 0, None, None
+
+        print(f"User: {first_name} {last_name} | Score: {score} | Assessment: {assessment_name or ''} | Date: {date_taken or ''}")
+
+        total_score += score
+        count += 1
+
+    avg_score = total_score / count if count > 0 else 0
+    print(f"\nAverage Score for {comp_name}: {avg_score:.2f}")
+
+
+def view_assessments_for_user(user_id):
+    print("\n--- My Assessment Results ---")
+
+    cursor.execute("""
+        SELECT a.name, a.competency_id, r.score, r.date_taken
+        FROM assessment_results r
+        JOIN assessments a ON r.assessment_id = a.assessment_id
+        WHERE r.user_id = ?
+        ORDER BY r.date_taken DESC
+    """, (user_id,))
+    results = cursor.fetchall()
+
+    if not results:
+        print("No assessment results found.")
+        return
+
+    for assessment_name, competency_id, score, date_taken in results:
+        # Get competency name for clarity
+        cursor.execute("SELECT name FROM competencies WHERE competency_id = ?", (competency_id,))
+        comp = cursor.fetchone()
+        comp_name = comp[0] if comp else "Unknown Competency"
+
+        print(f"Assessment: {assessment_name} | Competency: {comp_name} | Score: {score} | Date: {date_taken}")
+
+
+
+ # --- CSV Import/Export ---
+def import_results_from_csv(filename):
+    print(f"\n--- Import Results from {filename} ---")
+    try:
+        with open(filename, newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                cursor.execute("""
+                    INSERT INTO assessment_results (user_id, assessment_id, score, date_taken, manager_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                """, (
+                    row["user_id"],
+                    row["assessment_id"],
+                    row["score"],
+                    row["date_taken"],
+                    row.get("manager_id")
+                ))
+            connection.commit()
+        print("Results imported successfully.")
+    except Exception as e:
+        print(f"Error importing results: {e}")
+
+def export_users_to_csv(filename):
+    print(f"\n--- Export Users to {filename} ---")
+    cursor.execute("SELECT * FROM users")
+    rows = cursor.fetchall()
+    headers = [desc[0] for desc in cursor.description]
+    try:
+        with open(filename, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        print("Users exported successfully.")
+    except Exception as e:
+        print(f"Error exporting users: {e}")
+
+def export_competencies_to_csv(filename):
+    print(f"\n--- Export Competencies to {filename} ---")
+    cursor.execute("SELECT * FROM competencies")
+    rows = cursor.fetchall()
+    headers = [desc[0] for desc in cursor.description]
+    try:
+        with open(filename, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        print("Competencies exported successfully.")
+    except Exception as e:
+        print(f"Error exporting competencies: {e}")      
+
 
 
 def create_competency():
@@ -520,223 +728,7 @@ def delete_result():
         print("Delete cancelled.")
 
 
-
-def search_user_by_email():
-    print("\n--- Search User by Email ---")
-    email = input("Enter email to search: ").strip()
-    cursor.execute("""
-        SELECT user_id, first_name, last_name, phone, email, hire_date, user_type, active
-        FROM users
-        WHERE email = ?
-    """, (email,))
-    user = cursor.fetchone()
-    if user:
-        print(f"ID: {user[0]} | {user[1]} {user[2]} | Phone: {user[3]} | Email: {user[4]} | Hire Date: {user[5]} | Type: {user[6]} | Active: {user[7]}")
-    else:
-        print("No user found with that email.")
-
-
-def search_users_by_name():
-    print("\n--- Search Users by Name ---")
-    name = input("Enter first or last name to search: ").strip()
-    if not name:
-        print("Search cancelled (empty value).")
-        return
-
-    cursor.execute("""
-        SELECT user_id, first_name, last_name, email, phone, hire_date, user_type, active
-        FROM users
-        WHERE first_name LIKE ? OR last_name LIKE ?
-        ORDER BY last_name, first_name
-    """, (f"%{name}%", f"%{name}%"))
-    rows = cursor.fetchall()
-
-    if rows:
-        for r in rows:
-            print(f"ID: {r[0]} | {r[1]} {r[2]} | Email: {r[3]} | Phone: {r[4]} | "
-                  f"Hire Date: {r[5]} | Type: {r[6]} | Active: {r[7]}")
-    else:
-        print("No users found with that name.")
-
-
-
-
-def report_user_competency_summary(user_id):
-    print("\n--- User Competency Summary ---")
-
-    cursor.execute("SELECT first_name, last_name, email FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
-        print("User not found.")
-        return
-
-    print(f"User: {user[0]} {user[1]} | Email: {user[2]}")
-
-    cursor.execute("SELECT competency_id, name FROM competencies ORDER BY name")
-    competencies = cursor.fetchall()
-    if not competencies:
-        print("No competencies found.")
-        return
-
-    total_score = 0
-    count = 0
-
-    for comp_id, comp_name in competencies:
-        cursor.execute("""
-            SELECT r.score, r.date_taken, a.name
-            FROM assessment_results r
-            JOIN assessments a ON r.assessment_id = a.assessment_id
-            WHERE r.user_id = ? AND a.competency_id = ?
-            ORDER BY r.date_taken DESC
-            LIMIT 1
-        """, (user_id, comp_id))
-        result = cursor.fetchone()
-
-        if result:
-            score, date_taken, assessment_name = result
-        else:
-            score, date_taken, assessment_name = 0, None, None
-
-        print(f"Competency: {comp_name} | Score: {score} | Assessment: {assessment_name or ''} | Date: {date_taken or ''}")
-
-        total_score += score
-        count += 1
-
-    avg_score = total_score / count if count > 0 else 0
-    print(f"\nAverage Competency Score: {avg_score:.2f}")
-
-
-
-def report_competency_results_summary(competency_id):
-    print("\n--- Competency Results Summary ---")
-
-   
-    cursor.execute("SELECT name FROM competencies WHERE competency_id = ?", (competency_id,))
-    comp = cursor.fetchone()
-    if not comp:
-        print("Competency not found.")
-        return
-
-    comp_name = comp[0]
-    print(f"Competency: {comp_name}")
-
-    
-    cursor.execute("SELECT user_id, first_name, last_name FROM users WHERE active = 1 ORDER BY last_name, first_name")
-    users = cursor.fetchall()
-    if not users:
-        print("No active users found.")
-        return
-
-    total_score = 0
-    count = 0
-
-    for user_id, first_name, last_name in users:
-        cursor.execute("""
-            SELECT r.score, r.date_taken, a.name
-            FROM assessment_results r
-            JOIN assessments a ON r.assessment_id = a.assessment_id
-            WHERE r.user_id = ? AND a.competency_id = ?
-            ORDER BY r.date_taken DESC
-            LIMIT 1
-        """, (user_id, competency_id))
-        result = cursor.fetchone()
-
-        if result:
-            score, date_taken, assessment_name = result
-        else:
-            score, date_taken, assessment_name = 0, None, None
-
-        print(f"User: {first_name} {last_name} | Score: {score} | Assessment: {assessment_name or ''} | Date: {date_taken or ''}")
-
-        total_score += score
-        count += 1
-
-    avg_score = total_score / count if count > 0 else 0
-    print(f"\nAverage Score for {comp_name}: {avg_score:.2f}")
-
-
-def view_assessments_for_user(user_id):
-    print("\n--- My Assessment Results ---")
-
-    cursor.execute("""
-        SELECT a.name, a.competency_id, r.score, r.date_taken
-        FROM assessment_results r
-        JOIN assessments a ON r.assessment_id = a.assessment_id
-        WHERE r.user_id = ?
-        ORDER BY r.date_taken DESC
-    """, (user_id,))
-    results = cursor.fetchall()
-
-    if not results:
-        print("No assessment results found.")
-        return
-
-    for assessment_name, competency_id, score, date_taken in results:
-        # Get competency name for clarity
-        cursor.execute("SELECT name FROM competencies WHERE competency_id = ?", (competency_id,))
-        comp = cursor.fetchone()
-        comp_name = comp[0] if comp else "Unknown Competency"
-
-        print(f"Assessment: {assessment_name} | Competency: {comp_name} | Score: {score} | Date: {date_taken}")
-
-
-
- # --- CSV Import/Export ---
-def import_results_from_csv(filename):
-    print(f"\n--- Import Results from {filename} ---")
-    try:
-        with open(filename, newline="") as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                cursor.execute("""
-                    INSERT INTO assessment_results (user_id, assessment_id, score, date_taken, manager_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, datetime('now'))
-                """, (
-                    row["user_id"],
-                    row["assessment_id"],
-                    row["score"],
-                    row["date_taken"],
-                    row.get("manager_id")
-                ))
-            connection.commit()
-        print("Results imported successfully.")
-    except Exception as e:
-        print(f"Error importing results: {e}")
-
-def export_users_to_csv(filename):
-    print(f"\n--- Export Users to {filename} ---")
-    cursor.execute("SELECT * FROM users")
-    rows = cursor.fetchall()
-    headers = [desc[0] for desc in cursor.description]
-    try:
-        with open(filename, "w", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(headers)
-            writer.writerows(rows)
-        print("Users exported successfully.")
-    except Exception as e:
-        print(f"Error exporting users: {e}")
-
-def export_competencies_to_csv(filename):
-    print(f"\n--- Export Competencies to {filename} ---")
-    cursor.execute("SELECT * FROM competencies")
-    rows = cursor.fetchall()
-    headers = [desc[0] for desc in cursor.description]
-    try:
-        with open(filename, "w", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(headers)
-            writer.writerows(rows)
-        print("Competencies exported successfully.")
-    except Exception as e:
-        print(f"Error exporting competencies: {e}")      
-
-
-
-
-
-
-def manager_menu(user_info):
+def manager_menu():
     while True:
         print("\n--- Manager Menu ---")
         print("1. Manage Users")
@@ -908,7 +900,7 @@ def manager_menu(user_info):
 
         # --- LOGOUT ---
         elif choice == "7":
-            logout(user_info)
+            logout({"role": "manager"})
             break
 
         else:
@@ -956,7 +948,6 @@ def user_menu(user_id):
             print("Invalid choice.")
 
 
-# --- Program Entry Point ---
 if __name__ == "__main__":
     print("\n--- Welcome to the Competency Tracking Tool ---")
     role_choice = input("Are you logging in as a manager or user? ").strip().lower()
@@ -970,16 +961,14 @@ if __name__ == "__main__":
         user_info = login(email, password)
 
         if user_info:
+            
             if user_info["role"] != role_choice:
                 print(f"Role mismatch: you selected '{role_choice}' but your account is '{user_info['role']}'.")
             else:
                 print(f"Login successful as {role_choice}.")
                 if role_choice == "manager":
-                    manager_menu(user_info)
+                    manager_menu()
                 else:
                     user_menu(user_info["user_id"])
 
         logout(user_info)
-
-    connection.commit()   
-    connection.close()    
