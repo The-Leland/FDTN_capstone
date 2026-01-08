@@ -16,15 +16,15 @@ import datetime
 
 import bcrypt
 
-
-
-
-
-
-connection = sqlite3.connect("competency_database.sqlite")
-cursor = connection.cursor()
+import os
+print(os.path.abspath("competency_database.db"))
 
 cursor.execute("PRAGMA foreign_keys = ON;")
+
+password = "Password123!".encode("utf-8")
+hashed = bcrypt.hashpw(password, bcrypt.gensalt())
+print(hashed.decode("utf-8"))
+
 
 
 cursor.execute("""
@@ -728,7 +728,7 @@ def delete_result():
         print("Delete cancelled.")
 
 
-def manager_menu():
+def manager_menu(user_info):
     while True:
         print("\n--- Manager Menu ---")
         print("1. Manage Users")
@@ -900,7 +900,7 @@ def manager_menu():
 
         # --- LOGOUT ---
         elif choice == "7":
-            logout({"role": "manager"})
+            logout(user_info)
             break
 
         else:
@@ -967,7 +967,7 @@ if __name__ == "__main__":
             else:
                 print(f"Login successful as {role_choice}.")
                 if role_choice == "manager":
-                    manager_menu()
+                    manager_menu(user_info)
                 else:
                     user_menu(user_info["user_id"])
 
